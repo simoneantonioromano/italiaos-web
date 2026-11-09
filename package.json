@@ -1,0 +1,10 @@
+{
+  "name": "italiaos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "start": "node scripts/local.mjs"
+  }
+}
