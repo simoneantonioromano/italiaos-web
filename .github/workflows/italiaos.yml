@@ -1,0 +1,85 @@
+name: Aggiorna e pubblica ItaliaOS
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/italiaos.yml'
+      - 'src/**'
+      - 'scripts/**'
+      - 'drizzle/**'
+      - 'package.json'
+
+concurrency:
+  group: italiaos-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  edition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/cache/restore@v4
+        with:
+          path: .state/italiaos.sqlite
+          key: italiaos-edition-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: italiaos-edition-v1-
+      - name: Raccogli i feed e costruisci il sito
+        run: node scripts/publish-pages.mjs
+        env:
+          CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
+      - uses: actions/cache/save@v4
+        with:
+          path: .state/italiaos.sqlite
+          key: italiaos-edition-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  publish:
+    needs: edition
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - name: Pubblica su GitHub Pages
+        id: publish
+        uses: actions/deploy-pages@v4
+
+  heartbeat:
+    if: github.event_name == 'schedule'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Registra l'ultima giornata di pubblicazione
+        shell: bash
+        run: |
+          today="$(date -u +%F)"
+          if test -f .last-edition && grep -Fxq "$today" .last-edition; then exit 0; fi
+          printf '%s\n' "$today" > .last-edition
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .last-edition
+          git commit -m "Aggiorna stato di pubblicazione"
+          git push origin HEAD:main
